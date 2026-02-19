@@ -1,4 +1,4 @@
-# Analítica de Resultados Saber 11 — Caldas
+# Analítica de Datos Saber 11 — Caldas
 
 **Curso:** Analítica Computacional para la Toma de Decisiones | **Profesor:** Juan F. Pérez | **Entrega:** 23 de febrero de 2026
 
