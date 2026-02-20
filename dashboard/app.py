@@ -2,12 +2,19 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from dash import Dash, dcc, html, Input, Output
-
+import unicodedata
 # =======================
 # 1) Cargar datos
 # =======================
 df = pd.read_csv("data/caldas_data_clean.csv")
+def limpiar_texto(x):
+    if pd.isna(x):
+        return x
+    x = str(x).strip()  # quitar espacios
+    x = unicodedata.normalize("NFKD", x).encode("ascii", "ignore").decode("ascii")  # quitar tildes
+    return x.upper()
 
+df["cole_mcpio_ubicacion"] = df["cole_mcpio_ubicacion"].apply(limpiar_texto)
 # (opcional) ordenar estratos para que no queden raros
 orden_estratos = ["Estrato 1","Estrato 2","Estrato 3","Estrato 4","Estrato 5","Estrato 6"]
 if "fami_estratovivienda" in df.columns:
