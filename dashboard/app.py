@@ -115,7 +115,25 @@ def layout_tab1():
         html.Div([dcc.Graph(id="p1_box")]),
         html.Div([
             html.Div([dcc.Graph(id="p1_heatmap")], style={"flex": "1", "paddingRight": "10px"}),
-            html.Div([dcc.Graph(id="p1_brecha_bar")], style={"flex": "1"}),
+
+            html.Div([
+                dcc.Graph(id="p1_brecha_bar"),
+
+                html.Div(
+                    "Esta gráfica muestra el promedio del puntaje global por municipio en tres grupos socioeconómicos: "
+                    "bajo (estratos 1–2), medio (3–4) y alto (5–6). "
+                    "La distancia entre los puntos bajo y alto refleja la brecha socioeconómica en desempeño académico. "
+                    "Solo se incluyen municipios con tamaño de muestra suficiente en los grupos comparados.",
+                    style={
+                        "fontSize": "0.85rem",
+                        "color": "#555",
+                        "marginTop": "10px",
+                        "lineHeight": "1.4"
+                    }
+                )
+
+            ], style={"flex": "1"}),
+
         ], style={"display": "flex"}),
 
         html.P(
