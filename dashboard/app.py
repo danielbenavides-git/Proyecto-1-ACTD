@@ -157,33 +157,149 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
     )
     fig_heat.update_layout(margin=dict(l=10, r=10, t=50, b=10))
 
-    # 3) Brecha por municipio (estrato alto - estrato bajo)
-    # definimos “bajo” como Estrato 1 si existe, si no el mínimo; “alto” como el máximo disponible
-    estratos_disp = [e for e in orden_estratos if e in d["fami_estratovivienda"].dropna().unique()]
-    if len(estratos_disp) >= 2:
-        estr_bajo = estratos_disp[0]
-        estr_alto = estratos_disp[-1]
-    else:
-        estr_bajo, estr_alto = None, None
+    # 3) Brecha por municipio — Lollipop: grupo bajo vs grupo alto
+    grupo_bajo = ["Estrato 1", "Estrato 2"]
+    grupo_medio = ["Estrato 3", "Estrato 4"]
+    grupo_alto = ["Estrato 5", "Estrato 6"]
 
-    if estr_bajo and estr_alto:
-        low = d[d["fami_estratovivienda"] == estr_bajo].groupby("cole_mcpio_ubicacion")["punt_global"].mean()
-        high = d[d["fami_estratovivienda"] == estr_alto].groupby("cole_mcpio_ubicacion")["punt_global"].mean()
-        brecha = (high - low).dropna().sort_values(ascending=False).reset_index()
-        brecha.columns = ["municipio", "brecha"]
-        titulo = f"Brecha por municipio: {estr_alto} – {estr_bajo} (promedio puntaje global)"
-    else:
-        brecha = pd.DataFrame({"municipio": [], "brecha": []})
-        titulo = "Brecha por municipio (no hay suficientes estratos en selección)"
+    def media_grupo(df_fil, grupos, col_mun="cole_mcpio_ubicacion"):
+        sub = df_fil[df_fil["fami_estratovivienda"].isin(grupos)]
+        return sub.groupby(col_mun)["punt_global"].agg(["mean", "count"])
 
-    fig_brecha = px.bar(
-        brecha.head(15),
-        x="brecha",
-        y="municipio",
-        orientation="h",
-        title=titulo
+    stats_bajo  = media_grupo(d, grupo_bajo)
+    stats_medio = media_grupo(d, grupo_medio)
+    stats_alto  = media_grupo(d, grupo_alto)
+
+    # Unir en un DataFrame por municipio
+    brecha_df = pd.DataFrame({
+        "media_bajo":  stats_bajo["mean"],
+        "n_bajo":      stats_bajo["count"],
+        "media_medio": stats_medio["mean"],
+        "n_medio":     stats_medio["count"],
+        "media_alto":  stats_alto["mean"],
+        "n_alto":      stats_alto["count"],
+    }).dropna(subset=["media_bajo", "media_alto"]).reset_index()
+    brecha_df = brecha_df.rename(columns={"cole_mcpio_ubicacion": "municipio"})
+
+    # Filtro mínimo de muestra en bajo y alto
+    min_n = 20
+    brecha_df = brecha_df[
+        (brecha_df["n_bajo"] >= min_n) & (brecha_df["n_alto"] >= min_n)
+    ]
+
+    # Brecha = alto - bajo, ordenar
+    brecha_df["brecha"] = brecha_df["media_alto"] - brecha_df["media_bajo"]
+    brecha_df = brecha_df.sort_values("brecha", ascending=True)  # ascending=True para que mayor quede arriba en horizontal
+
+    import plotly.graph_objects as go
+
+    fig_brecha = go.Figure()
+
+    # ── Línea de rango bajo–alto por municipio ──────────────────────────────
+    for _, row in brecha_df.iterrows():
+        puntos_x = [row["media_bajo"], row["media_alto"]]
+        tiene_medio = not pd.isna(row["media_medio"])
+        if tiene_medio:
+            puntos_x_linea = [row["media_bajo"], row["media_medio"], row["media_alto"]]
+        else:
+            puntos_x_linea = [row["media_bajo"], row["media_alto"]]
+
+        fig_brecha.add_trace(go.Scatter(
+            x=puntos_x_linea,
+            y=[row["municipio"]] * len(puntos_x_linea),
+            mode="lines",
+            line=dict(color="#c0d0e0", width=2.5),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+    # ── Punto grupo BAJO (E1–E2) ────────────────────────────────────────────
+    fig_brecha.add_trace(go.Scatter(
+        x=brecha_df["media_bajo"],
+        y=brecha_df["municipio"],
+        mode="markers",
+        name="Bajo (E1–E2)",
+        marker=dict(color="#e05c5c", size=13, line=dict(color="white", width=1.5)),
+        customdata=np.stack([
+            brecha_df["n_bajo"],
+            brecha_df["media_bajo"].round(1)
+        ], axis=1),
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Grupo bajo (E1–E2)<br>"
+            "Media: %{customdata[1]}<br>"
+            "n: %{customdata[0]}<extra></extra>"
+        ),
+    ))
+
+    # ── Punto grupo MEDIO (E3–E4) ───────────────────────────────────────────
+    fig_brecha.add_trace(go.Scatter(
+        x=brecha_df["media_medio"],
+        y=brecha_df["municipio"],
+        mode="markers",
+        name="Medio (E3–E4)",
+        marker=dict(color="#d4c034", size=10, line=dict(color="white", width=1.5)),
+        customdata=np.stack([
+            brecha_df["n_medio"].fillna(0).astype(int),
+            brecha_df["media_medio"].round(1)
+        ], axis=1),
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Grupo medio (E3–E4)<br>"
+            "Media: %{customdata[1]}<br>"
+            "n: %{customdata[0]}<extra></extra>"
+        ),
+    ))
+
+    # ── Punto grupo ALTO (E5–E6) ────────────────────────────────────────────
+    fig_brecha.add_trace(go.Scatter(
+        x=brecha_df["media_alto"],
+        y=brecha_df["municipio"],
+        mode="markers",
+        name="Alto (E5–E6)",
+        marker=dict(color="#7c6fcd", size=13, line=dict(color="white", width=1.5)),
+        customdata=np.stack([
+            brecha_df["n_alto"],
+            brecha_df["media_alto"].round(1),
+            brecha_df["brecha"].round(1),
+        ], axis=1),
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Grupo alto (E5–E6)<br>"
+            "Media: %{customdata[1]}<br>"
+            "n: %{customdata[0]}<br>"
+            "Δ brecha: <b>%{customdata[2]}</b><extra></extra>"
+        ),
+    ))
+
+    # ── Anotación Δ al final de cada barra ─────────────────────────────────
+    annotations = []
+    for _, row in brecha_df.iterrows():
+        annotations.append(dict(
+            x=row["media_alto"] + 1.5,
+            y=row["municipio"],
+            text=f"Δ{row['brecha']:.0f}",
+            showarrow=False,
+            font=dict(size=10, color="#e05c5c"),
+            xanchor="left",
+        ))
+
+    fig_brecha.update_layout(
+        fig_brecha.update_layout(
+    title=dict(
+        text="Brecha por municipio: Alto (E5–E6) vs Bajo (E1–E2)",
+        font=dict(size=14),
+        x=0,          # alineado a la izquierda
+        xanchor="left",),
+        template="plotly_white",
+        font=dict(family="Inter, Arial", size=12),
+        margin=dict(l=10, r=60, t=50, b=10),
+        xaxis_title="Promedio puntaje global",
+        yaxis_title="",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        annotations=annotations,
+        height=max(350, len(brecha_df) * 28 + 80),  # altura dinámica según municipios
     )
-    fig_brecha.update_layout(margin=dict(l=10, r=10, t=50, b=10))
 
     return fig_box, fig_heat, fig_brecha
 
