@@ -1,222 +1,185 @@
-import os
 import pandas as pd
-import dash
-from dash import html, dcc, dash_table
-from dash.dependencies import Input, Output
+import numpy as np
 import plotly.express as px
+from dash import Dash, dcc, html, Input, Output
 
-# ----------------------------
-# 1) Cargar datos (prueba varias rutas típicas)
-# ----------------------------
-CANDIDATE_PATHS = [
-    "data/caldas_data_clean.csv",
-    "data/caldas_clean.csv",
-    "caldas_data_clean.csv",
-    "caldas_clean.csv",
-]
+# =======================
+# 1) Cargar datos
+# =======================
+df = pd.read_csv("data/caldas_data_clean.csv")
 
-csv_path = next((p for p in CANDIDATE_PATHS if os.path.exists(p)), None)
-if csv_path is None:
-    raise FileNotFoundError(
-        "No encontré el CSV. Busqué en: " + ", ".join(CANDIDATE_PATHS)
-        + ". Ajusta la ruta en CANDIDATE_PATHS."
-    )
+# (opcional) ordenar estratos para que no queden raros
+orden_estratos = ["Estrato 1","Estrato 2","Estrato 3","Estrato 4","Estrato 5","Estrato 6"]
+if "fami_estratovivienda" in df.columns:
+    df["fami_estratovivienda"] = pd.Categorical(df["fami_estratovivienda"], categories=orden_estratos, ordered=True)
 
-df = pd.read_csv(csv_path, low_memory=False)
+municipios = sorted(df["cole_mcpio_ubicacion"].dropna().unique())
+estratos = [e for e in orden_estratos if e in df["fami_estratovivienda"].dropna().unique()]
 
-# ----------------------------
-# 2) Auto-detección de columnas
-# ----------------------------
-def pick_col(candidates):
-    """Devuelve la primera columna existente (case-insensitive) cuyo nombre contenga alguno de los candidatos."""
-    cols = list(df.columns)
-    lower_map = {c.lower(): c for c in cols}
-    for cand in candidates:
-        for c_lower, c_orig in lower_map.items():
-            if cand in c_lower:
-                return c_orig
-    return None
+# =======================
+# 2) App
+# =======================
+app = Dash(__name__, suppress_callback_exceptions=True)
+app.title = "Saber 11 - Caldas"
 
-col_municipio = pick_col(["municipio", "mun", "reside_mun", "estu_mun", "presenta_mun"])
-col_estrato   = pick_col(["estrato"])
-col_puntaje   = pick_col(["punt_global", "puntaje_global", "global", "punt"])
+app.layout = html.Div([
+    html.H2("Tablero Saber 11 – Caldas"),
+    html.P("Explora brechas por estrato, educación de padres, tipo de colegio, zona y género."),
 
-# Si detectó "punt" pero es ambiguo (ej. punt_matematicas), intenta priorizar global
-if col_puntaje and "global" not in col_puntaje.lower():
-    col_puntaje2 = pick_col(["punt_global", "puntaje_global"])
-    if col_puntaje2:
-        col_puntaje = col_puntaje2
+    # Tabs con id="tabs"
+    dcc.Tabs(id="tabs", value="tab1", children=[
+        dcc.Tab(label="Pregunta 1: Brechas socioeconómicas", value="tab1"),
+        dcc.Tab(label="Pregunta 2: Bajo rendimiento", value="tab2"),
+        dcc.Tab(label="Pregunta 3: Brecha de género", value="tab3"),
+        ]),
 
-# ----------------------------
-# 3) App
-# ----------------------------
-app = dash.Dash(__name__)
 
-def header_badge(label, value):
-    return html.Div(
-        [
-            html.Div(label, style={"fontSize": "12px", "opacity": 0.7}),
-            html.Div(str(value), style={"fontSize": "14px", "fontWeight": "600"}),
-        ],
-        style={
-            "padding": "10px 12px",
-            "border": "1px solid #e6e6e6",
-            "borderRadius": "10px",
-            "background": "white",
-            "display": "inline-block",
-            "marginRight": "10px",
-            "marginBottom": "10px",
-            "minWidth": "220px",
-        },
-    )
+    html.Div(id="contenido-tab")
+], style={"maxWidth": "1200px", "margin": "0 auto", "padding": "10px"})
 
-# Opciones de municipio si existe la columna
-if col_municipio:
-    municipios = sorted(df[col_municipio].dropna().astype(str).unique().tolist())
-    default_mun = municipios[0] if municipios else None
-else:
-    municipios = []
-    default_mun = None
 
-app.layout = html.Div(
-    style={"fontFamily": "system-ui, -apple-system, Segoe UI, Roboto, Arial", "padding": "18px", "background": "#f6f7f9"},
-    children=[
-        html.H2("Dashboard mínimo — Saber 11 Caldas", style={"margin": "0 0 6px 0"}),
-        html.Div(
-            [
-                header_badge("CSV cargado", csv_path),
-                header_badge("Filas", df.shape[0]),
-                header_badge("Columnas", df.shape[1]),
-            ]
-        ),
+# =======================
+# 3) Layout Tab 1
+# =======================
+def layout_tab1():
+    return html.Div([
+        html.H3("P1. Desempeño vs Estrato y educación de padres (Caldas)"),
 
-        html.Div(
-            style={"padding": "12px", "border": "1px solid #e6e6e6", "borderRadius": "12px", "background": "white"},
-            children=[
-                html.Div("Columnas detectadas:", style={"fontWeight": "600", "marginBottom": "6px"}),
-                html.Ul([
-                    html.Li(f"municipio: {col_municipio}"),
-                    html.Li(f"estrato: {col_estrato}"),
-                    html.Li(f"puntaje: {col_puntaje}"),
-                ]),
-                html.Div(
-                    "Si alguna sale como None, abajo te muestro todas las columnas para que ajustes los nombres.",
-                    style={"fontSize": "12px", "opacity": 0.75},
+        html.Div([
+            html.Div([
+                html.Label("Municipios"),
+                dcc.Dropdown(
+                    options=[{"label": m, "value": m} for m in municipios],
+                    value=municipios,  # default: todos
+                    multi=True,
+                    id="p1_municipios"
                 ),
-            ],
-        ),
+            ], style={"flex": "2", "paddingRight": "10px"}),
 
-        html.Div(style={"height": "12px"}),
-
-        # Controles
-        html.Div(
-            style={"display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
-            children=[
-                html.Div(
-                    style={"padding": "12px", "border": "1px solid #e6e6e6", "borderRadius": "12px", "background": "white"},
-                    children=[
-                        html.Div("Municipio", style={"fontWeight": "600", "marginBottom": "6px"}),
-                        dcc.Dropdown(
-                            id="mun_dd",
-                            options=[{"label": m, "value": m} for m in municipios],
-                            value=default_mun,
-                            placeholder="(No detecté municipio — revisa columnas)",
-                            clearable=False,
-                        ),
+            html.Div([
+                html.Label("Variable educación"),
+                dcc.RadioItems(
+                    options=[
+                        {"label": "Educación madre", "value": "fami_educacionmadre"},
+                        {"label": "Educación padre", "value": "fami_educacionpadre"},
                     ],
+                    value="fami_educacionmadre",
+                    id="p1_edu_var",
+                    inline=True
                 ),
-                html.Div(
-                    style={"padding": "12px", "border": "1px solid #e6e6e6", "borderRadius": "12px", "background": "white"},
-                    children=[
-                        html.Div("Tipo de gráfico", style={"fontWeight": "600", "marginBottom": "6px"}),
-                        dcc.RadioItems(
-                            id="chart_type",
-                            options=[
-                                {"label": "Boxplot por estrato", "value": "box"},
-                                {"label": "Promedio por estrato (barras)", "value": "bar"},
-                            ],
-                            value="box",
-                            inline=True,
-                        ),
-                    ],
+                html.Br(),
+                html.Label("Estratos a comparar"),
+                dcc.Dropdown(
+                    options=[{"label": e, "value": e} for e in estratos],
+                    value=estratos,
+                    multi=True,
+                    id="p1_estratos"
                 ),
-            ],
-        ),
+            ], style={"flex": "1"}),
+        ], style={"display": "flex", "marginBottom": "15px"}),
 
-        html.Div(style={"height": "12px"}),
+        html.Div([
+            dcc.Graph(id="p1_box"),
+        ]),
 
-        # Gráfico
-        html.Div(
-            style={"padding": "12px", "border": "1px solid #e6e6e6", "borderRadius": "12px", "background": "white"},
-            children=[
-                dcc.Graph(id="main_graph"),
-            ],
-        ),
+        html.Div([
+            html.Div([dcc.Graph(id="p1_heatmap")], style={"flex": "1", "paddingRight": "10px"}),
+            html.Div([dcc.Graph(id="p1_brecha_bar")], style={"flex": "1"}),
+        ], style={"display": "flex"}),
 
-        html.Div(style={"height": "12px"}),
+        html.P("Nota: la gráfica de brechas por municipio muestra (promedio estrato alto – promedio estrato bajo). "
+               "Luego la convertimos a mapa cuando tengamos el GeoJSON de municipios de Caldas.",
+               style={"fontSize": "0.9rem", "color": "#444"})
+    ])
 
-        # Tabla de columnas y muestra de datos para que ajustes rápido
-        html.Div(
-            style={"padding": "12px", "border": "1px solid #e6e6e6", "borderRadius": "12px", "background": "white"},
-            children=[
-                html.Div("Vista rápida (primeras 15 filas)", style={"fontWeight": "600", "marginBottom": "8px"}),
-                dash_table.DataTable(
-                    data=df.head(15).to_dict("records"),
-                    columns=[{"name": c, "id": c} for c in df.columns],
-                    page_size=15,
-                    style_table={"overflowX": "auto"},
-                    style_cell={"fontSize": 12, "padding": "6px", "maxWidth": "240px", "whiteSpace": "normal"},
-                ),
-            ],
-        ),
-    ],
-)
 
+# =======================
+# 4) Router Tabs
+# =======================
+@app.callback(Output("contenido-tab", "children"), Input("tabs", "value"))
+def render_tab(tab):
+    if tab == "tab1":
+        return layout_tab1()
+    if tab == "tab2":
+        return html.Div([html.H3("Tab 2 (pendiente)"), html.P("Aquí va el mapa + explicaciones oficial/privado y rural/urbano.")])
+    return html.Div([html.H3("Tab 3 (pendiente)"), html.P("Aquí va la brecha por género en matemáticas vs lectura crítica.")])
+
+# OJO: falta asignar id="tabs" al componente Tabs:
+# En el layout arriba, cambia dcc.Tabs(...) por dcc.Tabs(id="tabs", ...)
+
+# =======================
+# 5) Callbacks Tab 1
+# =======================
 @app.callback(
-    Output("main_graph", "figure"),
-    Input("mun_dd", "value"),
-    Input("chart_type", "value"),
+    Output("p1_box", "figure"),
+    Output("p1_heatmap", "figure"),
+    Output("p1_brecha_bar", "figure"),
+    Input("p1_municipios", "value"),
+    Input("p1_edu_var", "value"),
+    Input("p1_estratos", "value"),
 )
-def update_graph(mun_value, chart_type):
-    # Si faltan columnas clave, muestra un gráfico vacío con mensaje
-    if not (col_puntaje and col_estrato):
-        fig = px.scatter(title="No pude detectar columnas clave (puntaje/estrato). Revisa la tabla de columnas abajo.")
-        fig.update_layout(height=420)
-        return fig
+def actualizar_tab1(muns_sel, edu_var, estr_sel):
+    d = df[df["cole_mcpio_ubicacion"].isin(muns_sel)].copy()
+    d = d[d["fami_estratovivienda"].isin(estr_sel)].copy()
 
-    dff = df.copy()
+    # 1) Boxplot punt_global vs estrato
+    fig_box = px.box(
+        d,
+        x="fami_estratovivienda",
+        y="punt_global",
+        points=False,
+        title="Distribución de puntaje global por estrato"
+    )
+    fig_box.update_layout(margin=dict(l=10, r=10, t=50, b=10))
 
-    # Filtrar municipio si existe
-    if col_municipio and mun_value is not None:
-        dff = dff[dff[col_municipio].astype(str) == str(mun_value)]
-
-    # Asegura que puntaje sea numérico
-    dff[col_puntaje] = pd.to_numeric(dff[col_puntaje], errors="coerce")
-
-    if chart_type == "box":
-        fig = px.box(
-            dff.dropna(subset=[col_estrato, col_puntaje]),
-            x=col_estrato,
-            y=col_puntaje,
-            points="outliers",
-            title=f"Puntaje vs Estrato" + (f" — {mun_value}" if mun_value else ""),
+    # 2) Heatmap estrato x educación (promedio punt_global)
+    piv = (
+        d.pivot_table(
+            index="fami_estratovivienda",
+            columns=edu_var,
+            values="punt_global",
+            aggfunc="mean"
         )
+        .sort_index()
+    )
+
+    fig_heat = px.imshow(
+        piv,
+        aspect="auto",
+        title=f"Promedio puntaje global: Estrato vs {edu_var.replace('fami_', '')}"
+    )
+    fig_heat.update_layout(margin=dict(l=10, r=10, t=50, b=10))
+
+    # 3) Brecha por municipio (estrato alto - estrato bajo)
+    # definimos “bajo” como Estrato 1 si existe, si no el mínimo; “alto” como el máximo disponible
+    estratos_disp = [e for e in orden_estratos if e in d["fami_estratovivienda"].dropna().unique()]
+    if len(estratos_disp) >= 2:
+        estr_bajo = estratos_disp[0]
+        estr_alto = estratos_disp[-1]
     else:
-        agg = (
-            dff.dropna(subset=[col_estrato, col_puntaje])
-            .groupby(col_estrato, as_index=False)[col_puntaje]
-            .mean()
-            .sort_values(col_estrato)
-        )
-        fig = px.bar(
-            agg,
-            x=col_estrato,
-            y=col_puntaje,
-            title=f"Promedio de puntaje por estrato" + (f" — {mun_value}" if mun_value else ""),
-        )
+        estr_bajo, estr_alto = None, None
 
-    fig.update_layout(height=420, margin=dict(l=30, r=20, t=60, b=30))
-    return fig
+    if estr_bajo and estr_alto:
+        low = d[d["fami_estratovivienda"] == estr_bajo].groupby("cole_mcpio_ubicacion")["punt_global"].mean()
+        high = d[d["fami_estratovivienda"] == estr_alto].groupby("cole_mcpio_ubicacion")["punt_global"].mean()
+        brecha = (high - low).dropna().sort_values(ascending=False).reset_index()
+        brecha.columns = ["municipio", "brecha"]
+        titulo = f"Brecha por municipio: {estr_alto} – {estr_bajo} (promedio puntaje global)"
+    else:
+        brecha = pd.DataFrame({"municipio": [], "brecha": []})
+        titulo = "Brecha por municipio (no hay suficientes estratos en selección)"
+
+    fig_brecha = px.bar(
+        brecha.head(15),
+        x="brecha",
+        y="municipio",
+        orientation="h",
+        title=titulo
+    )
+    fig_brecha.update_layout(margin=dict(l=10, r=10, t=50, b=10))
+
+    return fig_box, fig_heat, fig_brecha
+
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=8051)
+    app.run(debug=True)
