@@ -180,7 +180,15 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
         "n_alto":      stats_alto["count"],
     }).dropna(subset=["media_bajo", "media_alto"]).reset_index()
     brecha_df = brecha_df.rename(columns={"cole_mcpio_ubicacion": "municipio"})
+    # Si el usuario selecciona 1 municipio, no usamos un filtro tan estricto
+    if isinstance(muns_sel, str):
+        muns_sel = [muns_sel]
 
+    min_n = 1 if len(muns_sel) == 1 else 20
+
+    brecha_df = brecha_df[
+        (brecha_df["n_bajo"] >= min_n) & (brecha_df["n_alto"] >= min_n)
+    ]
     # Filtro mínimo de muestra en bajo y alto
     min_n = 20
     brecha_df = brecha_df[
@@ -268,39 +276,34 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
             "Grupo alto (E5–E6)<br>"
             "Media: %{customdata[1]}<br>"
             "n: %{customdata[0]}<br>"
-            "Δ brecha: <b>%{customdata[2]}</b><extra></extra>"
+            
         ),
     ))
 
-    # ── Anotación Δ al final de cada barra ─────────────────────────────────
-    annotations = []
-    for _, row in brecha_df.iterrows():
-        annotations.append(dict(
-            x=row["media_alto"] + 1.5,
-            y=row["municipio"],
-            text=f"Δ{row['brecha']:.0f}",
-            showarrow=False,
-            font=dict(size=10, color="#e05c5c"),
-            xanchor="left",
-        ))
+    
 
     fig_brecha.update_layout(
-        fig_brecha.update_layout(
     title=dict(
         text="Brecha por municipio: Alto (E5–E6) vs Bajo (E1–E2)",
         font=dict(size=14),
-        x=0,          # alineado a la izquierda
-        xanchor="left",),
-        template="plotly_white",
-        font=dict(family="Inter, Arial", size=12),
-        margin=dict(l=10, r=60, t=50, b=10),
-        xaxis_title="Promedio puntaje global",
-        yaxis_title="",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        annotations=annotations,
-        height=max(350, len(brecha_df) * 28 + 80),  # altura dinámica según municipios
-    )
-
+        x=0,
+        xanchor="left",
+    ),                          # ← cierra title=dict() aquí ✓
+    template="plotly_white",
+    font=dict(family="Inter, Arial", size=12),
+    margin=dict(l=10, r=60, t=50, b=10),
+    xaxis_title="Promedio puntaje global",
+    yaxis_title="",
+    legend=dict(
+        orientation="h",
+        yanchor="top",
+        y=-0.15,
+        xanchor="left",
+        x=0
+    ),
+    
+    height=max(350, len(brecha_df) * 28 + 80),
+)                               
     return fig_box, fig_heat, fig_brecha
 
 
