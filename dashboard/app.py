@@ -10,8 +10,50 @@ import json
 # 1) Cargar datos
 # =======================
 df = pd.read_csv("data/caldas_data_clean.csv")
-with open("data/colombia-municipios.json", "r", encoding="utf-8") as f:
+with open("data/caldas_municipios.geojson", "r", encoding="utf-8") as f:
     geo_muns = json.load(f)
+
+##revisemos las coordenadas
+def geo_bounds(geo):
+    xs, ys = [], []
+    for ft in geo["features"]:
+        geom = ft["geometry"]
+        if geom is None:
+            continue
+        coords_list = []
+        if geom["type"] == "Polygon":
+            coords_list = geom["coordinates"]
+        elif geom["type"] == "MultiPolygon":
+            # lista de polígonos, cada uno con anillos
+            for poly in geom["coordinates"]:
+                coords_list += poly
+
+        for ring in coords_list:
+            for x, y in ring:
+                xs.append(x); ys.append(y)
+    return (min(xs), max(xs), min(ys), max(ys))
+
+mnx, mxx, mny, mxy = geo_bounds(geo_muns)
+print("BOUNDS X:", mnx, mxx)
+print("BOUNDS Y:", mny, mxy)
+# --- Normalizar nombres en GeoJSON para que coincidan con el CSV ---
+def norm_mun(x):
+    if x is None:
+        return None
+    x = str(x).strip()
+    x = unicodedata.normalize("NFKD", x).encode("ascii", "ignore").decode("ascii")
+    return x.upper()
+# Normalizar municipios en GeoJSON (crear llave estándar)
+for f in geo_muns["features"]:
+    f["properties"]["MUN_NORM"] = norm_mun(f["properties"].get("MUN_NORM") or f["properties"].get("MPIO_CNMBR"))
+# 1) Identificar el campo de nombre del municipio dentro del GeoJSON
+#    (si no sabes cuál es, imprime las llaves)
+print(geo_muns["features"][0]["properties"])
+
+# 2) CAMBIA ESTA VARIABLE si el nombre de la llave es distinto
+GEO_MUN_KEY = "MPIO_CNMBR"   # <- si en el print sale otro, cámbialo aquí
+
+
 def limpiar_texto(x):
     if pd.isna(x):
         return x
@@ -21,6 +63,18 @@ def limpiar_texto(x):
 
 # Normalizar municipios
 df["cole_mcpio_ubicacion"] = df["cole_mcpio_ubicacion"].apply(limpiar_texto)
+
+#geo_names = {f["properties"]["MUN_NORM"] for f in geo_muns["features"]}
+#df_names  = set(df["cole_mcpio_ubicacion"].dropna().unique())
+
+#print("Coincidencias:", len(df_names & geo_names))
+#print("En DF pero no en GeoJSON:", sorted(df_names - geo_names))
+#print("En GeoJSON pero no en DF:", sorted(geo_names - df_names))
+
+geo_names_check = {f["properties"]["MUN_NORM"] for f in geo_muns["features"]}
+df_names_check = set(df["cole_mcpio_ubicacion"].dropna().unique())
+print("Matches:", len(df_names_check & geo_names_check))
+print("Sin match en GeoJSON:", df_names_check - geo_names_check)
 
 # Ordenar estratos
 orden_estratos = ["Estrato 1","Estrato 2","Estrato 3","Estrato 4","Estrato 5","Estrato 6"]
@@ -142,6 +196,56 @@ def layout_tab1():
         
     ])
 
+# layout de 2
+def layout_tab2():
+    return html.Div([
+        html.H3("P2. Municipios con bajo rendimiento y factores asociados"),
+
+        html.Div([
+            # Métrica del mapa
+            html.Div([
+                html.Label("Métrica para el mapa"),
+                dcc.Dropdown(
+                    id="p2_metric",
+                    options=[
+                        {"label": "Promedio puntaje global",    "value": "avg"},
+                        {"label": "% con puntaje global < umbral", "value": "pct_low"},
+                    ],
+                    value="avg",
+                    clearable=False,
+                ),
+            ], style={"flex": "1", "paddingRight": "15px"}),
+
+            # Umbral (solo activo si métrica = pct_low)
+            html.Div([
+                html.Label("Umbral bajo desempeño (solo aplica al %)"),
+                dcc.Slider(
+                    id="p2_threshold",
+                    min=200, max=300, step=5, value=250,
+                    marks={200: "200", 225: "225", 250: "250", 275: "275", 300: "300"},
+                ),
+            ], style={"flex": "2"}),
+        ], style={"display": "flex", "marginBottom": "15px", "alignItems": "flex-end"}),
+
+        # Mapa
+        dcc.Graph(id="p2_map"),
+
+        # Nota dinámica debajo del mapa
+        html.Div(id="p2_note", style={"fontSize": "0.85rem", "color": "#555", "marginTop": "6px"}),
+
+        # Hint de click
+        html.P(
+            "💡 Haz clic en un municipio del mapa para ver su desagregación por tipo de colegio y zona.",
+            style={"fontSize": "0.82rem", "color": "#888", "marginTop": "4px"}
+        ),
+
+        # Gráficas de detalle (se actualizan al hacer click)
+        html.Div([
+            html.Div([dcc.Graph(id="p2_official_private")], style={"flex": "1", "paddingRight": "10px"}),
+            html.Div([dcc.Graph(id="p2_rural_urban")],      style={"flex": "1"}),
+        ], style={"display": "flex", "marginTop": "10px"}),
+    ])
+
 
 # =======================
 # 4) Router Tabs
@@ -151,7 +255,7 @@ def render_tab(tab):
     if tab == "tab1":
         return layout_tab1()
     if tab == "tab2":
-        return html.Div([html.H3("Tab 2 (pendiente)"), html.P("Aquí va el mapa + explicaciones oficial/privado y rural/urbano.")])
+        return layout_tab2()
     return html.Div([html.H3("Tab 3 (pendiente)"), html.P("Aquí va la brecha por género en matemáticas vs lectura crítica.")])
 
 
@@ -341,5 +445,145 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
     return fig_box, fig_heat, fig_brecha
 
 
+from dash import State
+
+# =======================
+# 5b) Callback Tab 2
+# =======================
+@app.callback(
+    Output("p2_map",            "figure"),
+    Output("p2_official_private","figure"),
+    Output("p2_rural_urban",    "figure"),
+    Output("p2_note",           "children"),
+    Input("p2_metric",    "value"),
+    Input("p2_threshold", "value"),
+    Input("p2_map",       "clickData"),
+)
+def actualizar_tab2(metric, thr, clickData):
+
+    d = df.copy()
+
+    # ── Métrica agregada por municipio ──────────────────────────────────────
+    if metric == "avg":
+        agg = d.groupby("cole_mcpio_ubicacion")["punt_global"].mean().reset_index(name="value")
+        agg["value"] = agg["value"].round(1)
+        color_label = "Promedio"
+        titulo_mapa = "Promedio puntaje global por municipio (Caldas)"
+        nota = "Mapa coloreado por promedio de puntaje global Saber 11. Haz clic en un municipio para ver detalle."
+    else:
+        d["_low"] = (d["punt_global"] < thr).astype(int)
+        agg = d.groupby("cole_mcpio_ubicacion")["_low"].mean().reset_index(name="value")
+        agg["value"] = (agg["value"] * 100).round(1)
+        color_label = f"% < {thr}"
+        titulo_mapa = f"% estudiantes con puntaje global < {thr} por municipio (Caldas)"
+        nota = f"Mapa coloreado por porcentaje de estudiantes con puntaje menor a {thr}."
+
+    # ── Mapa coroplético ────────────────────────────────────────────────────
+    fig_map = px.choropleth_mapbox(
+    agg,
+    geojson=geo_muns,
+    locations="cole_mcpio_ubicacion",
+    featureidkey="properties.MUN_NORM",
+    color="value",
+    color_continuous_scale="Blues" if metric == "avg" else "Reds",
+    labels={"value": color_label},
+    title=titulo_mapa,
+    hover_name="cole_mcpio_ubicacion",
+    hover_data={"cole_mcpio_ubicacion": False, "value": True},
+    mapbox_style="carto-positron",   # mapa base sin token
+    center={"lat": 5.3, "lon": -75.3},
+    zoom=7,
+    opacity=0.75,
+    )
+    fig_map.update_layout(
+    template="plotly_white",
+    margin=dict(l=0, r=0, t=60, b=10),
+    font=dict(family="Arial", size=12),
+    title=dict(x=0, xanchor="left"),
+    height=480,
+    coloraxis_colorbar=dict(title=color_label, thickness=14, len=0.6),
+    )
+
+    # ── Municipio seleccionado vía click (default: el de mayor/menor valor) ─
+    if clickData and "points" in clickData and clickData["points"]:
+        pt = clickData["points"][0]
+        # px.choropleth devuelve el municipio en "location"
+        mun_sel = pt.get("location") or pt.get("hovertext")
+    else:
+        # Default: municipio con mayor valor de la métrica
+        mun_sel = agg.sort_values("value", ascending=(metric != "avg"))["cole_mcpio_ubicacion"].iloc[0]
+
+    dm = d[d["cole_mcpio_ubicacion"] == mun_sel].copy()
+
+    col_nat  = "cole_naturaleza"       # Público / Privado
+    col_area = "cole_area_ubicacion"   # URBANO / RURAL
+
+    # ── Barras: Oficial vs Privado ──────────────────────────────────────────
+    if col_nat in dm.columns and not dm.empty:
+        nat = (
+            dm.groupby(col_nat)["punt_global"]
+            .agg(["mean", "count"])
+            .reset_index()
+            .rename(columns={"mean": "Promedio", "count": "n"})
+        )
+        nat["Promedio"] = nat["Promedio"].round(1)
+        fig_nat = px.bar(
+            nat, x=col_nat, y="Promedio",
+            text="Promedio",
+            color=col_nat,
+            color_discrete_sequence=["#4878CF", "#E05C5C"],
+            title=f"{mun_sel}: promedio por naturaleza del colegio",
+            labels={col_nat: "Naturaleza", "Promedio": "Puntaje global promedio"},
+        )
+        fig_nat.update_traces(textposition="outside")
+        fig_nat.update_layout(
+            template="plotly_white",
+            showlegend=False,
+            margin=dict(l=10, r=10, t=60, b=10),
+            font=dict(family="Arial", size=12),
+            title=dict(x=0, xanchor="left"),
+            yaxis=dict(range=[0, nat["Promedio"].max() * 1.15]),
+        )
+    else:
+        fig_nat = fig_mensaje(
+            f"{mun_sel}: naturaleza del colegio",
+            "No hay datos suficientes o la columna no existe."
+        )
+
+    # ── Barras: Rural vs Urbano ─────────────────────────────────────────────
+    if col_area in dm.columns and not dm.empty:
+        area = (
+            dm.groupby(col_area)["punt_global"]
+            .agg(["mean", "count"])
+            .reset_index()
+            .rename(columns={"mean": "Promedio", "count": "n"})
+        )
+        area["Promedio"] = area["Promedio"].round(1)
+        fig_area = px.bar(
+            area, x=col_area, y="Promedio",
+            text="Promedio",
+            color=col_area,
+            color_discrete_sequence=["#5abe7a", "#d4c034"],
+            title=f"{mun_sel}: promedio por zona (rural / urbana)",
+            labels={col_area: "Zona", "Promedio": "Puntaje global promedio"},
+        )
+        fig_area.update_traces(textposition="outside")
+        fig_area.update_layout(
+            template="plotly_white",
+            showlegend=False,
+            margin=dict(l=10, r=10, t=60, b=10),
+            font=dict(family="Arial", size=12),
+            title=dict(x=0, xanchor="left"),
+            yaxis=dict(range=[0, area["Promedio"].max() * 1.15]),
+        )
+    else:
+        fig_area = fig_mensaje(
+            f"{mun_sel}: zona del colegio",
+            "No hay datos suficientes o la columna no existe."
+        )
+
+    return fig_map, fig_nat, fig_area, nota
+
 if __name__ == "__main__":
     app.run(debug=True)
+
