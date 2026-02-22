@@ -69,7 +69,7 @@ app.layout = html.Div([
         dcc.Tab(label="Pregunta 3: Brecha de género", value="tab3"),
     ]),
     html.Div(id="contenido-tab"),
-], style={"maxWidth": "1200px", "margin": "0 auto", "padding": "10px"})
+], style={"maxWidth": "1200px", "margin": "0 auto", "padding": "10px", "fontFamily": "Arial"})
 
 
 # =======================
@@ -192,10 +192,22 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
         d, x="fami_estratovivienda", y="punt_global",
         points=False, title="Distribución de puntaje global por estrato"
     )
-    fig_box.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=50, b=10),
-                          font=dict(family="Inter, Arial", size=12),
-                          title=dict(x=0, xanchor="left"))
 
+    # 👇 FORZAR ORDEN EN EL EJE (esto es lo que lo arregla SIEMPRE)
+    fig_box.update_xaxes(
+        type="category",
+        categoryorder="array",
+        categoryarray=orden_estratos
+    )
+    fig_box.update_layout(
+        template="plotly_white",
+        margin=dict(l=10, r=10, t=50, b=10),
+        font=dict(family="Arial", size=12),
+        title=dict(x=0, xanchor="left"),
+        xaxis_title="Estrato socioeconómico",
+        yaxis_title="Puntaje global (Saber 11)",
+    )
+    
     # 2) Heatmap
     piv = d.pivot_table(
         index="fami_estratovivienda",
@@ -213,9 +225,12 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
         )
         fig_heat.update_layout(template="plotly_white", margin=dict(l=10, r=10, t=50, b=10),
                                font=dict(family="Inter, Arial", size=12),
-                               title=dict(x=0, xanchor="left"))
+                               title=dict(x=0, xanchor="left"),
+                               xaxis_title="Nivel educativo de la madre",
+                                yaxis_title="Estrato socioeconómico",
+                                )
 
-    # 3) Lollipop
+    # 3) Lollipop   
     grupo_bajo  = ["Estrato 1", "Estrato 2"]
     grupo_medio = ["Estrato 3", "Estrato 4"]
     grupo_alto  = ["Estrato 5", "Estrato 6"]
@@ -247,9 +262,8 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
 
     if brecha_df.empty:
         fig_brecha = fig_mensaje(
-            "Brecha por municipio (lollipop)",
-            f"No hay datos suficientes para Bajo (E1–E2) y Alto (E5–E6) con min n={min_n}.<br>"
-            "Tip: incluye estratos 5–6 o selecciona más municipios / amplía filtros."
+            "Brecha por municipio",
+            f"No hay datos suficientes para Bajo (E1–E2) y Alto (E5–E6)"
         )
         return fig_box, fig_heat, fig_brecha
 
@@ -313,7 +327,7 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
 
     fig_brecha.update_layout(
         title=dict(
-            text=f"Brecha por municipio (lollipop): Bajo (E1–E2), Medio (E3–E4), Alto (E5–E6) | min n={min_n}",
+            text=f"Brecha por municipio: Bajo (E1–E2), Medio (E3–E4), Alto (E5–E6)",
             x=0, xanchor="left"
         ),
         template="plotly_white",
