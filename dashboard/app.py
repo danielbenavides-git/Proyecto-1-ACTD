@@ -4,12 +4,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
 import unicodedata
+import json
 
 # =======================
 # 1) Cargar datos
 # =======================
 df = pd.read_csv("data/caldas_data_clean.csv")
-
+with open("data/colombia-municipios.json", "r", encoding="utf-8") as f:
+    geo_muns = json.load(f)
 def limpiar_texto(x):
     if pd.isna(x):
         return x
@@ -128,7 +130,8 @@ def layout_tab1():
                         "fontSize": "0.85rem",
                         "color": "#555",
                         "marginTop": "10px",
-                        "lineHeight": "1.4"
+                        "lineHeight": "1.5",
+                        "textAlign": "justify",
                     }
                 )
 
@@ -136,11 +139,7 @@ def layout_tab1():
 
         ], style={"display": "flex"}),
 
-        html.P(
-            "Nota: el lollipop compara promedios de puntaje global por municipio entre grupos de estrato "
-            "(Bajo: 1–2, Medio: 3–4, Alto: 5–6).",
-            style={"fontSize": "0.9rem", "color": "#444"}
-        )
+        
     ])
 
 
