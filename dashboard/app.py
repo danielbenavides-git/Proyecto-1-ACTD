@@ -228,6 +228,17 @@ def layout_tab2():
                 ),
             ], style={"flex": "2"}),
         ], style={"display": "flex", "marginBottom": "15px", "alignItems": "flex-end"}),
+                # Mapa
+        dcc.Graph(id="p2_map"),
+
+        # Nota dinámica debajo del mapa
+        html.Div(id="p2_note", style={"fontSize": "0.85rem", "color": "#555", "marginTop": "6px"}),
+
+        # Hint de click
+        html.P(
+            "💡 Haz clic en un municipio del mapa para ver su desagregación por tipo de colegio y zona.",
+            style={"fontSize": "0.82rem", "color": "#888", "marginTop": "4px"}
+        ),
                 # NUEVO GRAFICOOOOO
         html.Hr(style={"margin": "24px 0", "borderColor": "#e0e0e0"}),
 
@@ -237,7 +248,7 @@ def layout_tab2():
             dcc.RadioItems(
                 id="p2_scatter_modo",
                 options=[
-                    {"label": "Oficial vs Privado", "value": "oficial"},
+                    {"label": "Público vs Privado", "value": "oficial"},
                     {"label": "Rural vs Urbano",    "value": "zona"},
                 ],
                 value="oficial",
@@ -255,17 +266,7 @@ def layout_tab2():
         ], style={"background": "#f9f9f9", "borderRadius": "10px",
                   "padding": "16px", "border": "1px solid #e0e0e0"}),
         # FIN DEL GRAFICO
-        # Mapa
-        dcc.Graph(id="p2_map"),
 
-        # Nota dinámica debajo del mapa
-        html.Div(id="p2_note", style={"fontSize": "0.85rem", "color": "#555", "marginTop": "6px"}),
-
-        # Hint de click
-        html.P(
-            "💡 Haz clic en un municipio del mapa para ver su desagregación por tipo de colegio y zona.",
-            style={"fontSize": "0.82rem", "color": "#888", "marginTop": "4px"}
-        ),
 
         # Gráficas de detalle (se actualizan al hacer click)
         html.Div([
@@ -698,7 +699,7 @@ def actualizar_scatter(modo):
 
         prom_tipo["brecha"]        = prom_tipo[col_priv[0]] - prom_tipo[col_of[0]]
         prom_tipo["tiene_privado"] = prom_tipo[col_priv[0]].notna()
-        etiqueta_y = "Diferencia Privado − Oficial (puntos)"
+        etiqueta_y = "Diferencia Privado − Público (puntos)"
 
         scatter_df = prom_general.merge(
             prom_tipo[["cole_mcpio_ubicacion", "brecha", "tiene_privado"]],
