@@ -12,6 +12,8 @@ import json
 df = pd.read_csv("data/caldas_data_clean.csv")
 with open("data/caldas_municipios.geojson", "r", encoding="utf-8") as f:
     geo_muns = json.load(f)
+print(df["estu_genero"].unique())
+print(df["estu_genero"].value_counts())
 
 ##revisemos las coordenadas
 def geo_bounds(geo):
@@ -271,8 +273,61 @@ def layout_tab2():
             html.Div([dcc.Graph(id="p2_rural_urban")],      style={"flex": "1"}),
         ], style={"display": "flex", "marginTop": "10px"}),
     ])
+# layout de 3
+def layout_tab3():
+    return html.Div([
+        html.H3("P3. Brecha de género en Matemáticas y Lectura Crítica (Caldas)"),
 
+        # Violin arriba completo
+        html.Div([dcc.Graph(id="p3_violin")]),
 
+        # Dot plot + texto descriptivo abajo
+        html.Div([
+            html.Div([dcc.Graph(id="p3_dotplot")], style={"flex": "2"}),
+
+            html.Div([
+                html.H4("¿Qué muestra esta gráfica?",
+                        style={"color": "#1a3a5c", "marginBottom": "10px"}),
+                html.P(
+                    "Cada fila representa un municipio de Caldas. "
+                    "Los puntos muestran la diferencia de puntaje promedio entre hombres y mujeres "
+                    "en cada materia (Hombres − Mujeres).",
+                    style={"fontSize": "0.85rem", "lineHeight": "1.6", "color": "#444"}
+                ),
+                html.Br(),
+                html.P(
+                    "- Puntos a la derecha del cero → hombres obtienen mayor puntaje.",
+                    style={"fontSize": "0.85rem", "lineHeight": "1.6", "color": "#444"}
+                ),
+                html.P(
+                    "- Puntos a la izquierda del cero → mujeres obtienen mayor puntaje.",
+                    style={"fontSize": "0.85rem", "lineHeight": "1.6", "color": "#444"}
+                ),
+                html.Br(),
+                html.P(
+                    "- Hallazgo clave: la brecha masculina en Matemáticas es consistente "
+                    "en todos los municipios. En Lectura Crítica el patrón es más mixto.",
+                    style={"fontSize": "0.85rem", "lineHeight": "1.6",
+                           "color": "#1a3a5c", "fontWeight": "600"}
+                ),
+                html.Br(),
+                html.P(
+                    "La magnitud de la brecha es pequeña (1–5 puntos) lo que indica que "
+                    "a nivel de promedio, ambos géneros rinden de forma similar en Caldas, "
+                    "pero el patrón es sistemático.",
+                    style={"fontSize": "0.83rem", "lineHeight": "1.6",
+                           "color": "#666", "fontStyle": "italic"}
+                ),
+            ], style={
+                "flex": "1",
+                "paddingLeft": "24px",
+                "paddingTop": "40px",
+                "borderLeft": "3px solid #e0e0e0",
+                "marginLeft": "10px",
+            }),
+
+        ], style={"display": "flex", "marginTop": "20px", "alignItems": "flex-start"}),
+    ])
 # =======================
 # 4) Router Tabs
 # =======================
@@ -282,7 +337,9 @@ def render_tab(tab):
         return layout_tab1()
     if tab == "tab2":
         return layout_tab2()
-    return html.Div([html.H3("Tab 3 (pendiente)"), html.P("Aquí va la brecha por género en matemáticas vs lectura crítica.")])
+    if tab == "tab3":
+        return layout_tab3()
+    
 
 
 # =======================
@@ -734,6 +791,102 @@ def actualizar_scatter(modo):
     )
 
     return fig
+
+
+#-------------------------
+#Callback tab 3
+#-------------------------
+from dash.exceptions import PreventUpdate
+@app.callback(
+    Output("p3_violin",  "figure"),
+    Output("p3_dotplot", "figure"),
+    Input("tabs", "value")
+)
+def actualizar_tab3(tab):
+    if tab != "tab3":
+        raise PreventUpdate
+
+    d = df.copy()
+    d["Género"] = d["estu_genero"].map({"F": "Femenino", "M": "Masculino"})
+    d = d.dropna(subset=["Género"])
+
+    # ── Violin ──────────────────────────────────────────────────────────────
+    d_long = d.melt(
+        id_vars="Género",
+        value_vars=["punt_matematicas", "punt_lectura_critica"],
+        var_name="Materia", value_name="Puntaje"
+    )
+    d_long["Materia"] = d_long["Materia"].map({
+        "punt_matematicas":     "Matemáticas",
+        "punt_lectura_critica": "Lectura Crítica"
+    })
+
+    fig_violin = px.violin(
+        d_long, x="Materia", y="Puntaje", color="Género",
+        box=True, points=False,
+        color_discrete_map={"Femenino": "#e05c8a", "Masculino": "#1a3a5c"},
+        title="Distribución de puntajes por género y materia (Caldas)",
+        labels={"Puntaje": "Puntaje", "Materia": ""}
+    )
+    fig_violin.update_layout(
+        template="plotly_white",
+        margin=dict(l=10, r=10, t=60, b=10),
+        title=dict(x=0, xanchor="left"),
+        font=dict(family="Arial", size=12),
+        height=380,
+    )
+
+    # ── Dot plot ─────────────────────────────────────────────────────────────
+    brechas = (
+        d.groupby(["cole_mcpio_ubicacion", "estu_genero"])
+        [["punt_matematicas", "punt_lectura_critica"]]
+        .mean().unstack("estu_genero")
+    )
+    brechas["brecha_mate"]    = brechas["punt_matematicas"]["M"]     - brechas["punt_matematicas"]["F"]
+    brechas["brecha_lectura"] = brechas["punt_lectura_critica"]["M"] - brechas["punt_lectura_critica"]["F"]
+    brechas = brechas[["brecha_mate", "brecha_lectura"]].reset_index()
+    brechas.columns = ["municipio", "brecha_mate", "brecha_lectura"]
+    brechas = brechas.dropna().sort_values("brecha_mate")
+
+    fig_dot = go.Figure()
+
+    for _, row in brechas.iterrows():
+        fig_dot.add_trace(go.Scatter(
+            x=[row["brecha_mate"], row["brecha_lectura"]],
+            y=[row["municipio"], row["municipio"]],
+            mode="lines",
+            line=dict(color="#c0d0e0", width=1.5),
+            showlegend=False, hoverinfo="skip"
+        ))
+
+    fig_dot.add_trace(go.Scatter(
+        x=brechas["brecha_mate"], y=brechas["municipio"],
+        mode="markers", name="Matemáticas",
+        marker=dict(color="#e67e22", size=11, line=dict(color="white", width=1.5)),
+        hovertemplate="<b>%{y}</b><br>Mate: %{x} pts<extra></extra>",
+    ))
+    fig_dot.add_trace(go.Scatter(
+        x=brechas["brecha_lectura"], y=brechas["municipio"],
+        mode="markers", name="Lectura Crítica",
+        marker=dict(color="#27ae60", size=11, line=dict(color="white", width=1.5)),
+        hovertemplate="<b>%{y}</b><br>Lectura: %{x} pts<extra></extra>",
+    ))
+
+    fig_dot.add_vline(x=0, line_dash="dash", line_color="gray",
+                      annotation_text="Sin brecha", annotation_position="top right")
+
+    fig_dot.update_layout(
+        title="Brecha género (Hombres − Mujeres) por municipio y materia",
+        template="plotly_white",
+        font=dict(family="Arial", size=11),
+        margin=dict(l=10, r=20, t=60, b=10),
+        xaxis_title="Diferencia de puntaje (positivo = hombres ganan)",
+        yaxis_title="",
+        legend=dict(orientation="h", y=-0.08),
+        title_x=0,
+        height=max(420, len(brechas) * 22 + 120),
+    )
+
+    return fig_violin, fig_dot
 if __name__ == "__main__":
     app.run(debug=True)
-
