@@ -226,7 +226,33 @@ def layout_tab2():
                 ),
             ], style={"flex": "2"}),
         ], style={"display": "flex", "marginBottom": "15px", "alignItems": "flex-end"}),
+                # NUEVO GRAFICOOOOO
+        html.Hr(style={"margin": "24px 0", "borderColor": "#e0e0e0"}),
 
+        html.Div([
+            html.Label("Variable de desigualdad interna",
+                       style={"fontWeight": "600", "marginBottom": "6px", "display": "block"}),
+            dcc.RadioItems(
+                id="p2_scatter_modo",
+                options=[
+                    {"label": "Oficial vs Privado", "value": "oficial"},
+                    {"label": "Rural vs Urbano",    "value": "zona"},
+                ],
+                value="oficial",
+                inline=True,
+                style={"marginBottom": "10px"}
+            ),
+            dcc.Graph(id="p2_scatter"),
+            html.Div(
+                "Eje X: promedio general del municipio. "
+                "Eje Y: diferencia de puntaje entre privado y oficial (o urbano y rural). "
+                "Los puntos rojos son los municipios con bajo rendimiento general.",
+                style={"fontSize": "0.82rem", "color": "#555",
+                       "marginTop": "8px", "lineHeight": "1.5"}
+            ),
+        ], style={"background": "#f9f9f9", "borderRadius": "10px",
+                  "padding": "16px", "border": "1px solid #e0e0e0"}),
+        # FIN DEL GRAFICO
         # Mapa
         dcc.Graph(id="p2_map"),
 
@@ -559,6 +585,7 @@ def actualizar_tab2(metric, thr, clickData):
             .rename(columns={"mean": "Promedio", "count": "n"})
         )
         area["Promedio"] = area["Promedio"].round(1)
+        area[col_area] = area[col_area].str.capitalize()
         fig_area = px.bar(
             area, x=col_area, y="Promedio",
             text="Promedio",
@@ -583,7 +610,130 @@ def actualizar_tab2(metric, thr, clickData):
         )
 
     return fig_map, fig_nat, fig_area, nota
+#--------------------------
+# Callback para scatter plot
+#--------------------------
+@app.callback(
+    Output("p2_scatter", "figure"),
+    Input("p2_scatter_modo", "value"),
+)
+def actualizar_scatter(modo):
+    d = df.copy()
+    col_nat  = "cole_naturaleza"
+    col_area = "cole_area_ubicacion"
 
+    prom_general = (
+        d.groupby("cole_mcpio_ubicacion")["punt_global"]
+        .mean()
+        .reset_index(name="prom_general")
+    )
+
+    if modo == "oficial":
+        prom_tipo = (
+            d.groupby(["cole_mcpio_ubicacion", col_nat])["punt_global"]
+            .mean().unstack(col_nat).reset_index()
+        )
+        col_of   = [c for c in prom_tipo.columns if str(c) == "Público"]
+        col_priv = [c for c in prom_tipo.columns if str(c) == "Privado"]
+
+        if not col_of or not col_priv:
+            return fig_mensaje("Scatter desigualdad", f"Columnas no encontradas: {list(prom_tipo.columns)}")
+
+        prom_tipo["brecha"]        = prom_tipo[col_priv[0]] - prom_tipo[col_of[0]]
+        prom_tipo["tiene_privado"] = prom_tipo[col_priv[0]].notna()
+        etiqueta_y = "Diferencia Privado − Oficial (puntos)"
+
+        scatter_df = prom_general.merge(
+            prom_tipo[["cole_mcpio_ubicacion", "brecha", "tiene_privado"]],
+            on="cole_mcpio_ubicacion", how="left"
+        )
+        scatter_df["brecha"] = scatter_df["brecha"].fillna(0)
+
+        # ← UMBRAL aquí, antes de usarlo
+        UMBRAL_BAJO = scatter_df["prom_general"].quantile(0.33)
+
+        scatter_df["color"] = scatter_df.apply(
+            lambda r: "Sin colegio privado" if not r["tiene_privado"]
+            else ("Bajo rendimiento" if r["prom_general"] <= UMBRAL_BAJO
+                  else "Rendimiento medio-alto"),
+            axis=1
+        )
+
+    else:  # zona
+        prom_tipo = (
+            d.groupby(["cole_mcpio_ubicacion", col_area])["punt_global"]
+            .mean().unstack(col_area).reset_index()
+        )
+        col_urb = [c for c in prom_tipo.columns if "URB" in str(c).upper()]
+        col_rur = [c for c in prom_tipo.columns if "RUR" in str(c).upper()]
+
+        if not col_urb or not col_rur:
+            return fig_mensaje("Scatter desigualdad", f"Columnas no encontradas: {list(prom_tipo.columns)}")
+
+        prom_tipo["brecha"] = prom_tipo[col_urb[0]] - prom_tipo[col_rur[0]]
+        etiqueta_y = "Diferencia Urbano − Rural (puntos)"
+
+        scatter_df = prom_general.merge(
+            prom_tipo[["cole_mcpio_ubicacion", "brecha"]],
+            on="cole_mcpio_ubicacion", how="left"
+        )
+        scatter_df["brecha"] = scatter_df["brecha"].fillna(0)
+
+        # ← UMBRAL aquí también
+        UMBRAL_BAJO = scatter_df["prom_general"].quantile(0.33)
+
+        scatter_df["color"] = scatter_df["prom_general"].apply(
+            lambda x: "Bajo rendimiento" if x <= UMBRAL_BAJO else "Rendimiento medio-alto"
+        )
+
+    scatter_df["prom_general"] = scatter_df["prom_general"].round(1)
+    scatter_df["brecha"]       = scatter_df["brecha"].round(1)
+
+    fig = px.scatter(
+        scatter_df,
+        x="prom_general", y="brecha",
+        text="cole_mcpio_ubicacion",
+        color="color",
+        color_discrete_map={
+            "Bajo rendimiento":       "#c0392b",
+            "Rendimiento medio-alto": "#1a3a5c",
+            "Sin colegio privado":    "#b0b0b0",
+        },
+        labels={
+            "prom_general": "Promedio puntaje global (municipio)",
+            "brecha": etiqueta_y,
+            "color": "",
+        },
+        title=f"Promedio general vs Desigualdad interna ({etiqueta_y})",
+    )
+
+# Primero el estilo general + hover
+    fig.update_traces(
+    textposition="top center",
+    textfont=dict(size=9),
+    marker=dict(size=13, line=dict(color="white", width=1.5)),
+    hovertemplate="<b>%{text}</b><br>Promedio: %{x}<br>Brecha: %{y} pts<extra></extra>",
+    )
+    fig.for_each_trace(
+    lambda t: t.update(
+        mode="markers",           # ← quita el "text" del modo visual
+        marker=dict(symbol="diamond", size=9, opacity=0.5)
+    ) if t.name == "Sin colegio privado" else None
+    )
+    fig.add_hline(y=0, line_dash="dot", line_color="gray",
+                  annotation_text="Sin brecha", annotation_position="right")
+    fig.add_vline(x=UMBRAL_BAJO, line_dash="dash", line_color="#e74c3c",
+                  annotation_text="⚠ Umbral bajo", annotation_position="top left")
+    fig.update_layout(
+        template="plotly_white",
+        font=dict(family="Arial", size=11),
+        margin=dict(l=10, r=20, t=60, b=10),
+        height=420,
+        legend=dict(orientation="h", y=-0.15),
+        title=dict(x=0, xanchor="left"),
+    )
+
+    return fig
 if __name__ == "__main__":
     app.run(debug=True)
 
