@@ -5,12 +5,17 @@ import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
 import unicodedata
 import json
-
+import os
 # =======================
 # 1) Cargar datos
 # =======================
-df = pd.read_csv("data/caldas_data_clean.csv")
-with open("data/caldas_municipios.geojson", "r", encoding="utf-8") as f:
+# Ruta base = carpeta donde está app.py (dashboard/)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Usar rutas absolutas
+df = pd.read_csv(os.path.join(BASE_DIR, "data", "caldas_data_clean.csv"))
+
+with open(os.path.join(BASE_DIR, "data", "caldas_municipios.geojson"), "r", encoding="utf-8") as f:
     geo_muns = json.load(f)
 print(df["estu_genero"].unique())
 print(df["estu_genero"].value_counts())
