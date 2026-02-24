@@ -241,7 +241,7 @@ def layout_tab2():
 
         # Hint de click
         html.P(
-            "💡 Haz clic en un municipio del mapa para ver su desagregación por tipo de colegio y zona.",
+            "💡 Haz clic en un municipio del mapa para ver su desagregación por tipo de colegio y zona en la gráfica de barras de la parte inferior.",
             style={"fontSize": "0.82rem", "color": "#888", "marginTop": "4px"}
         ),
                 # NUEVO GRAFICOOOOO
@@ -271,7 +271,17 @@ def layout_tab2():
         ], style={"background": "#f9f9f9", "borderRadius": "10px",
                   "padding": "16px", "border": "1px solid #e0e0e0"}),
         # FIN DEL GRAFICO
-
+        html.Div(id="p2_mun_seleccionado", style={
+        "background": "#eef4fb",
+        "borderLeft": "4px solid #1a3a5c",
+        "padding": "10px 16px",
+        "borderRadius": "0 8px 8px 0",
+        "fontSize": "0.88rem",
+        "color": "#1a3a5c",
+        "fontWeight": "600",
+        "marginBottom": "10px",
+        "marginTop": "16px",
+        }),
 
         # Gráficas de detalle (se actualizan al hacer click)
         html.Div([
@@ -385,7 +395,7 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
         points=False, title="Distribución de puntaje global por estrato"
     )
 
-    # 👇 FORZAR ORDEN EN EL EJE (esto es lo que lo arregla SIEMPRE)
+    #  FORZAR ORDEN EN EL EJE (esto es lo que lo arregla SIEMPRE)
     fig_box.update_xaxes(
         type="category",
         categoryorder="array",
@@ -401,12 +411,33 @@ def actualizar_tab1(muns_sel, edu_var, estr_sel):
     )
     
     # 2) Heatmap
+
+    orden_edu = [
+    "Ninguno",
+    "Primaria incompleta",
+    "Primaria completa",
+    "Secundaria (Bachillerato) incompleta",
+    "Secundaria (Bachillerato) completa",
+    "Técnica o tecnológica incompleta",
+    "Técnica o tecnológica completa",
+    "Educación profesional incompleta",
+    "Educación profesional completa",
+    "Postgrado",
+    "No sabe",
+    "No aplica",
+    ]
+
     piv = d.pivot_table(
-        index="fami_estratovivienda",
-        columns=edu_var,
-        values="punt_global",
-        aggfunc="mean"
+    index="fami_estratovivienda",
+    columns=edu_var,
+    values="punt_global",
+    aggfunc="mean"
     ).sort_index()
+
+# ← NUEVO: filtrar y reordenar solo las columnas que existen en los datos
+    cols_ordenadas = [c for c in orden_edu if c in piv.columns]
+    piv = piv[cols_ordenadas]
+
 
     if piv.empty:
         fig_heat = fig_mensaje("Promedio puntaje global: Estrato vs educación", "No hay combinaciones disponibles con estos filtros.")
@@ -544,6 +575,7 @@ from dash import State
     Output("p2_official_private","figure"),
     Output("p2_rural_urban",    "figure"),
     Output("p2_note",           "children"),
+    Output("p2_mun_seleccionado", "children"),
     Input("p2_metric",    "value"),
     Input("p2_threshold", "value"),
     Input("p2_map",       "clickData"),
@@ -621,7 +653,7 @@ def actualizar_tab2(metric, thr, clickData):
             text="Promedio",
             color=col_nat,
             color_discrete_sequence=["#4878CF", "#E05C5C"],
-            title=f"{mun_sel}: promedio por naturaleza del colegio",
+            title=f"Promedio por naturaleza del colegio",
             labels={col_nat: "Naturaleza", "Promedio": "Puntaje global promedio"},
         )
         fig_nat.update_traces(textposition="outside")
@@ -654,7 +686,7 @@ def actualizar_tab2(metric, thr, clickData):
             text="Promedio",
             color=col_area,
             color_discrete_sequence=["#5abe7a", "#d4c034"],
-            title=f"{mun_sel}: promedio por zona (rural / urbana)",
+            title=f"Promedio por zona (rural / urbana)",
             labels={col_area: "Zona", "Promedio": "Puntaje global promedio"},
         )
         fig_area.update_traces(textposition="outside")
@@ -671,8 +703,14 @@ def actualizar_tab2(metric, thr, clickData):
             f"{mun_sel}: zona del colegio",
             "No hay datos suficientes o la columna no existe."
         )
+    # ← NUEVO mensaje
+    if clickData and clickData["points"]:
+        msg = f"📍 Municipio seleccionado: {mun_sel}"
+    else:
+        msg = f"📍 Mostrando por defecto: {mun_sel} — haz clic en el mapa para cambiar"
 
-    return fig_map, fig_nat, fig_area, nota
+    return fig_map, fig_nat, fig_area, nota, msg
+
 #--------------------------
 # Callback para scatter plot
 #--------------------------
