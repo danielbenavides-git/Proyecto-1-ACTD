@@ -123,7 +123,25 @@ def fig_mensaje(titulo, mensaje):
 
 
 app.layout = html.Div([
-    html.H2("Tablero Saber 11 – Caldas"),
+    html.Div([
+        html.Img(
+            src="/assets/logo-uniandes.png",
+            style={
+                "height": "60px",
+                "marginRight": "15px"
+        }
+    ),
+    html.H2(
+        "Tablero Saber 11 – Caldas",
+        style={"margin": "0"}
+    )
+    ], style={
+        "display": "flex",
+        "alignItems": "center",
+        "marginBottom": "15px",
+        "borderBottom": "2px solid #e0e0e0",
+        "paddingBottom": "10px"
+    }),
     html.P("Explora brechas por estrato, educación de padres, tipo de colegio, zona y género."),
 
     dcc.Tabs(id="tabs", value="tab1", children=[
