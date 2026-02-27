@@ -88,3 +88,8 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+# permitir datos del dashboard
+!dashboard/data/
+!dashboard/data/*.csv
+!dashboard/data/*.geojson
+!dashboard/data/*.json
