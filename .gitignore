@@ -31,7 +31,6 @@ venv/
 # =====================
 # Data (ignore large raw data, but allow configs)
 # =====================
-data/
 datasets/
 
 # Large data file types
@@ -92,4 +91,5 @@ dist/
 !dashboard/data/
 !dashboard/data/*.csv
 !dashboard/data/*.geojson
+
 !dashboard/data/*.json
